@@ -1,46 +1,66 @@
-# Zappy
+# zappy
 
-Сервер на Rust (только стандартная библиотека), ИИ-клиент и 2D-визуализация на Python.
+A multiplayer network simulation game made of three independent programs: a **zero-dependency non-blocking server in Rust** (talking to `poll(2)` via FFI), an **autonomous AI agent in Python**, and a **2D graphical client**.
 
+## Components
+
+| Component | Language | Role |
+| --- | --- | --- |
+| `server` | Rust | Authoritative game world, TCP protocol, tick scheduler |
+| `ai` | Python | Autonomous player that decides what to do from `look` / `inventory` replies |
+| `gui` | 2D GUI | Read-only observer that renders the world |
+
+## Server architecture
+
+- A single thread multiplexes the listening socket and all clients with `poll(2)`, called through hand-written FFI declarations. No external crates are used.
+- All sockets are non-blocking; each client owns an input buffer (commands are split on newlines) and an output buffer.
+- **Tick-based time.** The world advances in ticks derived from the configured frequency `f`. Every command has a fixed duration expressed in ticks, and queued commands are executed in order when their deadline is reached.
+- Each player has a bounded command queue, a food clock and an inventory; the map is a grid of tiles containing resources.
+
+## Command protocol
+
+Text-based, one command per line:
+
+| Command | Effect |
+| --- | --- |
+| `Forward` | Move one tile ahead |
+| `Right` / `Left` | Turn 90 degrees |
+| `Look` | Describe visible tiles |
+| `Inventory` | Report carried resources |
+| `Take <object>` / `Set <object>` | Pick up or drop a resource |
+| `Broadcast <text>` | Send a message heard by every player |
+| `Incantation` | Start an elevation ritual |
+| `Fork` | Lay an egg for the team |
+| `Connect_nbr` | Number of free team slots |
+
+### Toroidal sound direction
+
+The map wraps around on both axes. For `Broadcast`, the server computes the **shortest path on the torus** between the emitter and each receiver and converts it to one of 8 directions relative to the receiver's orientation (`0` means the receiver is on the same tile).
+
+## Running
+
+Server:
+
+```bash
+cd server
+cargo build --release
+./target/release/server -p 4242 -x 20 -y 20 -n team1 team2 -c 5 -f 100
 ```
-rust_server/   сервер (src/main.rs - сеть и poll, src/game.rs - правила, src/geometry.rs - звук)
-ai_client/     автономный игрок ai.py
-gui_client/    графический клиент gui.py (tkinter, без игровых движков)
+
+AI client:
+
+```bash
+cd ai
+python3 client.py -n team1 -p 4242 -h 127.0.0.1
 ```
 
-## Сборка и запуск
+GUI:
 
-```sh
-make                         # собирает ./server
-./server -p 4242 -x 20 -y 20 -n red blue -c 5 -t 100
-./client -n red  -p 4242     # запустить по одному на команду (founder сам поднимет помощников)
-./client -n blue -p 4242
-./gui -p 4242                # визуализация (sudo apt install python3-tk)
+```bash
+cd gui
+./run_gui.sh 127.0.0.1 4242
 ```
 
-Параметры сервера: `-p -x -y -n -c -t` по заданию, плюс бонусные:
-`-s <seed>` (воспроизводимый мир), `-d <0.1..3.0>` (плотность ресурсов), `-l` (лог событий).
+## What this project demonstrates
 
-`make test` запускает юнит-тесты (в том числе пример со звуком из задания).
-
-## Как устроено
-
-* **Сеть**: неблокирующие сокеты + `poll(2)` (через `extern "C"`, без внешних крейтов).
-  Буфер ввода ограничен, медленный читатель отключается, очередь команд игрока - 10.
-* **Время**: тик = 1/t секунды. Каждая команда ставится в очередь игрока и
-  выполняется через свою задержку (7, 1, 48, 300...), блокируя только этого игрока.
-* **Еда**: игрок хранит "оставшуюся жизнь"; 1 еда = 126 тиков, старт = 10 еды.
-* **Ресурсы**: не больше 1 еды на клетку, не больше 1 камня каждого типа на клетку,
-  не больше 3 разных камней на клетку; каждые 20 тиков карта пополняется до целевого количества.
-* **Ритуал**: `enchantment` проверяет камни на клетке и число игроков того же уровня,
-  отвечает `evolution in progress`, через 300 тиков - `current level : N` (или `ko`).
-  Если участник умер, остальные продолжают, пока не останутся одни.
-* **fork**: яйцо появляется через 48 тиков, "корабль" прилетает через 600 и открывает слот в команде.
-* **Победа**: 6 игроков команды на уровне 8 -> всем рассылается `win <team>`, сервер завершается.
-* **Звук**: см. `geometry::sound_direction` (кратчайший путь по тору, нумерация клеток против часовой от направления взгляда).
-
-## Протокол для графического клиента
-
-GUI подключается, отправляет `GRAPHIC`, затем получает кадры 10 раз в секунду:
-`size W H`, `team i name`, `tile x y food s0..s5`, `player id team x y dir level food s0..s5 locked`,
-`sound x y text`, завершается строкой `end`.
+Low-level network programming, a custom tick scheduler, protocol design, FFI in Rust, and an autonomous agent communicating over a plain TCP text protocol.
