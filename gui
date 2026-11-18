@@ -1,0 +1,3 @@
+#!/bin/sh
+# ./gui -p <port> [-h <hostname>]   (needs python3-tk)
+exec python3 "$(dirname "$0")/gui_client/gui.py" "$@"

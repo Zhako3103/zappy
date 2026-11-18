@@ -1,0 +1,3 @@
+#!/bin/sh
+# ./client -n <team> -p <port> [-h <hostname>]
+exec python3 "$(dirname "$0")/ai_client/ai.py" "$@"
